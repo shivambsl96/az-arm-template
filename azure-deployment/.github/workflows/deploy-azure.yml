@@ -1,0 +1,49 @@
+name: Deploy ARM Template
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy (dev, qa, prod)'
+        required: true
+        default: 'dev'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+
+    - name: Azure Login
+      uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+    - name: Deploy ARM Template
+      run: |
+        az deployment group create \
+          --name "deployment-${{ github.event.inputs.environment }}" \
+          --resource-group "rg-${{ github.event.inputs.environment }}" \
+          --template-file ./templates/arm-template.json \
+          --parameters @./templates/parameters-${{ github.event.inputs.environment }}.json
+
+    - name: Assign API Management Permissions
+      run: |
+        az apim api update \
+          --resource-group "rg-${{ github.event.inputs.environment }}" \
+          --service-name "${{ github.event.inputs.environment }}-apim" \
+          --authentication-settings "{'oAuth2': {'authorizationServerId': '${{ github.event.inputs.environment }}'}}"
+
+    - name: Enable AKS Monitoring
+      run: |
+        az monitor log-analytics workspace create \
+          --resource-group "rg-${{ github.event.inputs.environment }}" \
+          --workspace-name "log-${{ github.event.inputs.environment }}" \
+          --location "eastus"
+
+        az monitor log-analytics workspace data-export create \
+          --resource-group "rg-${{ github.event.inputs.environment }}" \
+          --workspace-name "log-${{ github.event.inputs.environment }}" \
+          --destination "https://storageaccount.blob.core.windows.net/logs"

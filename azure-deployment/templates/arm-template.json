@@ -1,0 +1,195 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "envPrefix": {
+      "type": "string",
+      "metadata": {
+        "description": "Environment prefix (dev, qa, prod)"
+      }
+    },
+    "location": {
+      "type": "string",
+      "defaultValue": "eastus",
+      "metadata": {
+        "description": "Azure Region"
+      }
+    },
+    "clientId": {
+      "type": "string",
+      "metadata": {
+        "description": "Client ID for the service principal"
+      }
+    },
+    "clientSecret": {
+      "type": "securestring",
+      "metadata": {
+        "description": "Client Secret for the service principal"
+      }
+    }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Network/trafficManagerProfiles",
+      "apiVersion": "2015-11-01",
+      "name": "[concat(parameters('envPrefix'), '-traffic-manager')]",
+      "location": "global",
+      "properties": {
+        "trafficRoutingMethod": "Priority",
+        "dnsConfig": {
+          "relativeName": "[parameters('envPrefix')]",
+          "ttl": 30
+        },
+        "monitorConfig": {
+          "protocol": "HTTPS",
+          "port": 443,
+          "path": "/"
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Network/applicationGateways",
+      "apiVersion": "2018-04-01",
+      "name": "[concat(parameters('envPrefix'), '-app-gateway')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "sku": {
+          "name": "WAF_v2",
+          "tier": "WAF_v2",
+          "capacity": 2 // Fixed capacity
+        },
+        "gatewayIPConfigurations": [
+          {
+            "name": "gateway-ip-config",
+            "properties": {
+              "subnet": {
+                "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', concat(parameters('envPrefix'), '-vnet'), 'appgw-subnet')]"
+              }
+            }
+          }
+        ],
+        "frontendIPConfigurations": [
+          {
+            "name": "frontend-ip-config",
+            "properties": {
+              "subnet": {
+                "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', concat(parameters('envPrefix'), '-vnet'), 'appgw-subnet')]"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.Network/loadBalancers",
+      "apiVersion": "2017-06-01",
+      "name": "[concat(parameters('envPrefix'), '-load-balancer')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "frontendIPConfigurations": [
+          {
+            "name": "frontend-ip",
+            "properties": {
+              "privateIPAllocationMethod": "Dynamic",
+              "subnet": {
+                "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', concat(parameters('envPrefix'), '-vnet'), 'lb-subnet')]"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.ContainerService/managedClusters",
+      "apiVersion": "2017-08-31",
+      "name": "[concat(parameters('envPrefix'), '-aks-cluster')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "dnsPrefix": "[concat(parameters('envPrefix'), '-aks')]",
+        "networkProfile": {
+          "networkPlugin": "azure"
+        },
+        "aadProfile": {
+          "managed": true,
+          "enableAzureRBAC": true
+        },
+        "servicePrincipalProfile": {
+          "clientId": "[parameters('clientId')]",
+          "secret": "[parameters('clientSecret')]"
+        },
+        "agentPoolProfiles": [
+          {
+            "name": "agentpool",
+            "count": 3,
+            "vmSize": "Standard_DS2_v2",
+            "osType": "Linux",
+            "mode": "System"
+          }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.ApiManagement/service",
+      "apiVersion": "2016-07-07",
+      "name": "[concat(parameters('envPrefix'), '-apim')]",
+      "location": "[parameters('location')]",
+      "sku": {
+        "name": "Developer",
+        "capacity": 1
+      },
+      "properties": {
+        "publisherEmail": "admin@example.com",
+        "publisherName": "Admin",
+        "virtualNetworkConfiguration": {
+          "subnetResourceId": "[resourceId('Microsoft.Network/virtualNetworks/subnets', concat(parameters('envPrefix'), '-vnet'), 'apim-subnet')]"
+        },
+        "authenticationSettings": {
+          "oAuth2": {
+            "authorizationServerId": "[parameters('envPrefix')]"
+          }
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Network/virtualNetworks",
+      "apiVersion": "2017-06-01",
+      "name": "[concat(parameters('envPrefix'), '-vnet')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "addressSpace": {
+          "addressPrefixes": [ "10.0.0.0/16" ]
+        },
+        "subnets": [
+          { "name": "aks-subnet", "properties": { "addressPrefix": "10.0.1.0/24" } },
+          { "name": "apim-subnet", "properties": { "addressPrefix": "10.0.2.0/24" } },
+          { "name": "appgw-subnet", "properties": { "addressPrefix": "10.0.3.0/24" } }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.OperationalInsights/workspaces",
+      "apiVersion": "2021-12-01-preview",
+      "name": "[concat(parameters('envPrefix'), '-log-analytics')]",
+      "location": "[parameters('location')]",
+      "properties": {}
+    },
+    {
+      "type": "Microsoft.Advisor/configurations",
+      "apiVersion": "2020-01-01",
+      "name": "default",
+      "properties": {
+        "pricingTier": "Standard"
+      }
+    }
+  ],
+  "outputs": {
+    "aksClusterName": {
+      "type": "string",
+      "value": "[concat(parameters('envPrefix'), '-aks-cluster')]"
+    },
+    "apiManagementName": {
+      "type": "string",
+      "value": "[concat(parameters('envPrefix'), '-apim')]"
+    }
+  }
+}

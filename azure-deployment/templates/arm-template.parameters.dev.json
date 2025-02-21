@@ -1,0 +1,18 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "envPrefix": {
+            "value": "dev" 
+        },
+        "location": {
+            "value": "eastus"
+        },
+        "clientId": {
+            "value": "00000000-0000-0000-0000-000000000000"
+        },
+        "clientSecret": {
+            "value": "00000000-0000-0000-0000-000000000000"
+        }
+    }
+}
